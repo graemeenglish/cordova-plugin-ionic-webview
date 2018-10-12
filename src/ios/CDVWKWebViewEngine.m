@@ -109,6 +109,7 @@
 
 // see forwardingTargetForSelector: selector comment for the reason for this pragma
 #pragma clang diagnostic ignored "-Wprotocol"
+static NSDictionary  *serverStartOptions = nil;
 
 @implementation CDVWKWebViewEngine
 
@@ -118,6 +119,13 @@
 {
     self = [super init];
     if (self) {
+         
+        serverStartOptions = @{  
+            GCDWebServerOption_Port: @(8080),  
+            GCDWebServerOption_BindToLocalhost: @(YES),  
+            GCDWebServerOption_ServerName: @"Ionic",  
+            GCDWebServerOption_AutomaticallySuspendInBackground:@(NO)  
+            };  
         if (NSClassFromString(@"WKWebView") == nil) {
             return nil;
         }
@@ -144,13 +152,7 @@
     if(portNumber != 8080){
         self.CDV_LOCAL_SERVER = [NSString stringWithFormat:@"http://localhost:%d", portNumber];
     }
-        NSDictionary *options = @{
-                                  GCDWebServerOption_Port: @(portNumber),
-                                  GCDWebServerOption_BindToLocalhost: @(YES),
-                                  GCDWebServerOption_ServerName: @"Ionic"
-                                  };
-    
-        [self.webServer startWithOptions:options error:nil];
+        [self.webServer startWithOptions:serverStartOptions error:nil];
 }
 
 - (WKWebViewConfiguration*) createConfigurationFromSettings:(NSDictionary*)settings
@@ -299,6 +301,10 @@
 
 - (void)onReset
 {
+    if (!self.webServer.running) {  
+        [self.webServer stop];  
+        [self.webServer startWithOptions:serverStartOptions error:nil];  
+    }  
     [self addURLObserver];
 }
 
@@ -324,6 +330,14 @@ static void * KVOContext = &KVOContext;
 }
 
 - (void)onAppWillEnterForeground:(NSNotification *)notification {
+ 
+    NSLog(@"Web server received notification to enter foreground");  
+    if (![self canLoadRequest:[NSURLRequest requestWithURL:_webServer.serverURL]]){  
+        NSLog(@"But Web server was killed");  
+        [self.webServer stop];   //Just to kill everything  
+        [self.webServer addGETHandlerForBasePath:@"/" directoryPath:@"/" indexFilename:nil cacheAge:3600 allowRangeRequests:YES]; //I am not sure if this is important though  
+        [self.webServer startWithOptions:serverStartOptions error:nil];  
+    }  
     if ([self shouldReloadWebView]) {
         NSLog(@"%@", @"CDVWKWebViewEngine reloading!");
         [(WKWebView*)_engineWebView reload];
@@ -381,7 +395,7 @@ static void * KVOContext = &KVOContext;
 
 - (BOOL)canLoadRequest:(NSURLRequest *)request
 {
-    return TRUE;
+    return (_webServer.serverURL!=nil && _webServer.running);
 }
 
 - (void)updateSettings:(NSDictionary *)settings
